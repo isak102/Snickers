@@ -13,11 +13,14 @@ import ctypes
 import ctypes.wintypes
 import signal
 import sys
+import threading
 from typing import Any
 
+import pystray
 import win32api
 import win32con
 import win32gui
+from PIL import Image, ImageDraw
 
 # Constants
 LEAGUE_WINDOW_TITLE = "League of Legends (TM) Client"
@@ -35,6 +38,8 @@ WINEVENT_OUTOFCONTEXT = 0x0000  # Events delivered async, no hook injection
 black_window_hwnd: int | None = None
 black_bars_active: bool = False
 hook_handles: list[int] = []
+tray_icon: pystray.Icon | None = None
+shutting_down: bool = False
 
 
 # =============================================================================
@@ -365,6 +370,10 @@ def win_event_callback(
 
     Called when foreground window changes or a window is minimized/restored.
     """
+    # Skip processing if we're shutting down
+    if shutting_down:
+        return
+
     # We handle all relevant events by checking the current state
     # This is simpler and more robust than trying to track specific window events
     check_and_update_state()
@@ -420,15 +429,95 @@ def uninstall_event_hooks(hooks: list[int]) -> None:
 
 
 # =============================================================================
+# System Tray Icon
+# =============================================================================
+
+
+def create_tray_icon_image() -> Image.Image:
+    """Create a simple icon image for the system tray.
+
+    Creates a black square with a white border to represent the black bars concept.
+    """
+    size = 64
+    image = Image.new("RGB", (size, size), "black")
+    draw = ImageDraw.Draw(image)
+
+    # Draw a white border to make it visible
+    border = 4
+    draw.rectangle(
+        [border, border, size - border - 1, size - border - 1], outline="white", width=2
+    )
+
+    # Draw inner rectangle to represent the "game window"
+    inner_margin = 16
+    draw.rectangle(
+        [inner_margin, inner_margin, size - inner_margin - 1, size - inner_margin - 1],
+        outline="white",
+        width=1,
+    )
+
+    return image
+
+
+def on_tray_quit(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+    """Handle quit action from the tray menu."""
+    global shutting_down
+    icon.stop()
+    shutting_down = True
+
+
+def get_status_text() -> str:
+    """Get the current status text for the tray menu."""
+    return "Active" if black_bars_active else "Inactive"
+
+
+def create_tray_menu() -> pystray.Menu:
+    """Create the system tray context menu."""
+    return pystray.Menu(
+        pystray.MenuItem(
+            lambda text: f"Status: {get_status_text()}",
+            None,
+            enabled=False,
+        ),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Exit", on_tray_quit),
+    )
+
+
+def setup_tray_icon() -> pystray.Icon:
+    """Create and configure the system tray icon."""
+    icon = pystray.Icon(
+        name="lol-black-bars",
+        icon=create_tray_icon_image(),
+        title="LoL Black Bars",
+        menu=create_tray_menu(),
+    )
+    return icon
+
+
+def run_tray_icon(icon: pystray.Icon) -> None:
+    """Run the tray icon in a separate thread."""
+    icon.run()
+
+
+# =============================================================================
 # Main Logic
 # =============================================================================
 
 
 def cleanup() -> None:
     """Clean up resources and restore system state."""
-    global black_window_hwnd, hook_handles
+    global black_window_hwnd, hook_handles, tray_icon
 
     print("\nCleaning up...")
+
+    # Stop the tray icon
+    if tray_icon:
+        try:
+            tray_icon.stop()
+        except Exception:
+            pass
+        tray_icon = None
 
     # Uninstall the event hooks
     if hook_handles:
@@ -448,13 +537,14 @@ def cleanup() -> None:
 
 def signal_handler(signum: int, frame: Any) -> None:
     """Handle termination signals gracefully."""
+    global shutting_down
+    shutting_down = True
     cleanup()
-    sys.exit(0)
 
 
 def main() -> None:
     """Main entry point."""
-    global hook_handles
+    global hook_handles, tray_icon, shutting_down
 
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
@@ -464,6 +554,7 @@ def main() -> None:
     print("=" * 50)
     print(f"Monitoring for window: '{LEAGUE_WINDOW_TITLE}'")
     print("Using Windows Event Hooks (no polling)")
+    print("System tray icon active - right-click to access menu")
     print("Press Ctrl+C to exit")
     print("=" * 50)
 
@@ -476,31 +567,41 @@ def main() -> None:
 
         print(f"Event hooks installed successfully ({len(hook_handles)} hooks)")
 
+        # Set up and start the system tray icon in a separate thread
+        tray_icon = setup_tray_icon()
+        tray_thread = threading.Thread(
+            target=run_tray_icon, args=(tray_icon,), daemon=True
+        )
+        tray_thread.start()
+        print("System tray icon started")
+
         # Check initial state (in case League is already focused)
         check_and_update_state()
 
-        # Run the Windows message loop to receive events
-        # This is required for the event hook to work
+        # Run a non-blocking message loop using PeekMessage
+        # This allows Ctrl+C to be processed properly
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         msg = ctypes.wintypes.MSG()
 
-        while True:
-            # GetMessage blocks until a message is available
-            # Returns 0 for WM_QUIT, -1 for error, positive for other messages
-            result = user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
+        WM_QUIT = 0x0012
 
-            if result == 0:
-                # WM_QUIT received
-                break
-            elif result == -1:
-                # Error occurred
-                print("Error in message loop")
-                break
-            else:
-                # Dispatch the message
+        while not shutting_down:
+            # PeekMessage is non-blocking: returns 0 if no message, positive if message found
+            result = user32.PeekMessageW(ctypes.byref(msg), 0, 0, 0, 1)  # 1 = PM_REMOVE
+
+            if result > 0:
+                if msg.message == WM_QUIT:
+                    break
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))
+            else:
+                # No message - sleep briefly to avoid busy waiting
+                import time
 
+                time.sleep(0.01)
+
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         print(f"Error: {e}")
     finally:
