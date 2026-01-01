@@ -1,5 +1,5 @@
 """
-Black Bars Script (Event-Driven Version)
+Snickers Script (Event-Driven Version)
 
 Creates a black background behind monitored game/application windows when focused,
 and hides the Windows taskbar. Restores everything when the window loses focus or is minimized.
@@ -10,7 +10,7 @@ Configuration:
     Set WINDOW_TITLES to a list of window titles to monitor, or pass them via --titles argument.
     Example: python main.py --titles "Window Title 1" "Window Title 2"
 
-    Or create a black_bars_config.json file with the following format:
+    Or create a snickers.json file with the following format:
     {
         "window_titles": ["Window Title 1", "Window Title 2"]
     }
@@ -42,7 +42,7 @@ from PIL import Image, ImageDraw
 WINDOW_TITLES = [
     "League of Legends (TM) Client",
 ]
-CONFIG_FILE = Path("black_bars_config.json")
+CONFIG_FILE = Path("snickers.json")
 TASKBAR_CLASS = "Shell_TrayWnd"
 START_BUTTON_CLASS = "Button"
 
@@ -65,7 +65,7 @@ singleton_mutex: Any = None
 # Logging
 # =============================================================================
 
-log = logging.getLogger("black_bars")
+log = logging.getLogger("snickers")
 log.setLevel(logging.DEBUG)
 
 # Create formatters
@@ -74,7 +74,7 @@ formatter = logging.Formatter(
 )
 
 # File handler (rotating log file)
-log_file = Path("black_bars.log")  # TODO: Change this path to somewhere else
+log_file = Path("snickers.log")  # TODO: Change this path to somewhere else
 file_handler = logging.handlers.RotatingFileHandler(
     log_file,
     maxBytes=5 * 1024 * 1024,  # 5MB
@@ -197,7 +197,7 @@ def get_monitor_rect(hwnd: int) -> tuple[int, int, int, int] | None:
 
 def create_window_class() -> str:
     """Register a window class for the black background window."""
-    class_name = "BlackBarsWindow"
+    class_name = "SnickersWindow"
 
     wc = win32gui.WNDCLASS()
     wc.lpfnWndProc = {  # type: ignore[assignment]
@@ -247,7 +247,7 @@ def create_black_window(monitor_rect: tuple[int, int, int, int]) -> int:
     hwnd = win32gui.CreateWindowEx(
         ex_style,
         class_name,
-        "Black Background",
+        "Snickers Background",
         style,
         left,
         top,
@@ -593,9 +593,9 @@ def create_tray_menu() -> pystray.Menu:
 def setup_tray_icon() -> pystray.Icon:
     """Create and configure the system tray icon."""
     icon = pystray.Icon(
-        name="black-bars",
+        name="snickers",
         icon=create_tray_icon_image(),
-        title="Black Bars",
+        title="Snickers",
         menu=create_tray_menu(),
     )
     return icon
@@ -661,7 +661,7 @@ def main() -> None:
     global hook_handles, tray_icon, shutting_down, WINDOW_TITLES, logger, singleton_mutex
 
     # Ensure only one instance is running
-    mutex_name = "LoLBlackBars_SingleInstance_Mutex"
+    mutex_name = "Snickers_SingleInstance_Mutex"
     singleton_mutex = win32event.CreateMutex(None, False, mutex_name)
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
         logger.warning("Another instance of Black Bars is already running. Exiting.")
@@ -674,7 +674,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    logger.info("Black Bars Script (Event-Driven)")
+    logger.info("Snickers Script (Event-Driven)")
     logger.info("=" * 50)
     logger.info(f"Monitoring {len(WINDOW_TITLES)} window(s):")
     for title in WINDOW_TITLES:

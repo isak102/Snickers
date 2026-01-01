@@ -1,6 +1,6 @@
 # Instructions
 
-- You (the agent) are running inside of WSL. This script is intended to be ran on Windows. Hence, the script will not run properly when you try to run it. Do NOT try to execute it inside of Linux.
+- You (the agent) are running inside of WSL. This script is intended to be ran on Windows. Hence, the script will not run properly when you try to run it. Do NOT try to execute it inside of Linux. `uv` will also not be able to install the Windows dependencies inside of Linux, so ignore errors related to that.
 - Do NOT commit anything without me giving you explicit instructions.
 - When making a plan, if you are unsure about anything, ask instead of making assumptions.
 
